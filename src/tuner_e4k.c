@@ -64,8 +64,8 @@ static const uint8_t width2mask[] = {
  */
 int e4k_reg_write(struct e4k_state *e4k, uint8_t reg, uint8_t val)
 {
-	/* FIXME */
-	return 0;
+	/* impemented in librtlsdr.c */
+	return -1;
 }
 
 /*! \brief Read a register of the tuner chip
@@ -75,8 +75,8 @@ int e4k_reg_write(struct e4k_state *e4k, uint8_t reg, uint8_t val)
  */
 int e4k_reg_read(struct e4k_state *e4k, uint8_t reg)
 {
-	/* FIXME */
-	return 0;
+	/* impemented in librtlsdr.c */
+	return -1;
 }
 #endif
 
@@ -343,7 +343,7 @@ int e4k_if_filter_bw_get(struct e4k_state *e4k, enum e4k_if_filter filter)
 
 struct pll_settings {
 	uint32_t freq;
-	uint8_t reg_synth7;
+	uint8_t reg_synth7; /* bit 4 determines three phase mixing (if set mult /= 2)*/
 	uint8_t mult;
 };
 
@@ -382,6 +382,16 @@ static int is_fosc_valid(uint32_t fosc)
 	return 1;
 }
 
+static int is_flo_valid(uint32_t flo)
+{
+	if (flo < MHZ(E4K_FLO_MIN_MHZ) || flo > MHZ(E4K_FLO_MAX_MHZ)) {
+		fprintf(stderr, "[E4K] Flo %u invalid\n", flo);
+		return 0;
+	}
+
+	return 1;
+}
+
 static int is_z_valid(uint32_t z)
 {
 	if (z > 255) {
@@ -390,16 +400,6 @@ static int is_z_valid(uint32_t z)
 	}
 
 	return 1;
-}
-
-/*! \brief Determine if 3-phase mixing shall be used or not */
-static int use_3ph_mixing(uint32_t flo)
-{
-	/* this is a magic number somewhre between VHF and UHF */
-	if (flo < MHZ(350))
-		return 1;
-
-	return 0;
 }
 
 /* \brief compute Fvco based on Fosc, Z and X
@@ -481,6 +481,9 @@ uint32_t e4k_compute_pll_params(struct e4k_pll_params *oscp, uint32_t fosc, uint
 	oscp->r_idx = 0;
 
 	if (!is_fosc_valid(fosc))
+		return 0;
+
+	if (!is_flo_valid(intended_flo))
 		return 0;
 
 	for(i = 0; i < ARRAY_SIZE(pll_vars); ++i) {
@@ -587,6 +590,10 @@ int e4k_tune_freq(struct e4k_state *e4k, uint32_t freq)
 
 /***********************************************************************
  * Gain Control */
+/* signal flow: (source FUNcube dongle doc )
+ * LNA -> RF flit. -> Mix -> Mix filt. -> if_gain1 -> RC filt. -
+ *  -> if_gain 2 - 4 -> IF filt. -> if_gain 5 - 6
+ */
 
 static const int8_t if_stage1_gain[] = {
 	-3, 6
@@ -601,11 +608,11 @@ static const int8_t if_stage4_gain[] = {
 };
 
 static const int8_t if_stage56_gain[] = {
-	3, 6, 9, 12, 15, 15, 15, 15
+	3, 6, 9, 12, 15, 15, 15, 15 /* TODO check this - 3dB offset to the linux driver*/
 };
 
 static const int8_t *if_stage_gain[] = {
-	0,
+	NULL,
 	if_stage1_gain,
 	if_stage23_gain,
 	if_stage23_gain,
@@ -835,7 +842,7 @@ int e4k_dc_offset_gen_table(struct e4k_state *e4k)
 {
 	uint32_t i;
 
-	/* FIXME: read ont current gain values and write them back
+	/* FIXME: read out current gain values and write them back
 	 * before returning to the caller */
 
 	/* disable auto mixer gain */
@@ -950,18 +957,12 @@ int e4k_init(struct e4k_state *e4k)
 	e4k_reg_write(e4k, E4K_REG_AGC5, 0x04);	/* Low threshold */
 	e4k_reg_write(e4k, E4K_REG_AGC6, 0x1a);	/* LNA calib + loop rate */
 
-	e4k_reg_set_mask(e4k, E4K_REG_AGC1, E4K_AGC1_MOD_MASK,
-		E4K_AGC_MOD_SERIAL);
-
-	/* Set Mixer Gain Control to manual */
-	e4k_reg_set_mask(e4k, E4K_REG_AGC7, E4K_AGC7_MIX_GAIN_AUTO, 0);
-
 #if 0
 	/* Enable LNA Gain enhancement */
-	e4k_reg_set_mask(e4k, E4K_REG_AGC11, 0x7,
-			 E4K_AGC11_LNA_GAIN_ENH | (2 << 1));
+	e4k_set_enh_gain(e4k, 30)
 
-	/* Enable automatic IF gain mode switching */
+	/* Enable automatic IF gain mode switching (auto gain sensing mode) 
+	 * TODO The linux kernel driver has much stuff for it*/
 	e4k_reg_set_mask(e4k, E4K_REG_AGC8, 0x1, E4K_AGC8_SENS_LIN_AUTO);
 #endif
 
