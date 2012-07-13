@@ -120,6 +120,7 @@ int e4000_set_bw(void *dev, int bw) {
 	r |= e4k_if_filter_bw_set(&devt->e4k_s, E4K_IF_FILTER_MIX, bw);
 	r |= e4k_if_filter_bw_set(&devt->e4k_s, E4K_IF_FILTER_RC, bw);
 	r |= e4k_if_filter_bw_set(&devt->e4k_s, E4K_IF_FILTER_CHAN, bw);
+	r |= e4k_if_filter_chan_enable(&devt->e4k_s, 1);
 
 	return r;
 }
@@ -992,7 +993,7 @@ int rtlsdr_set_sample_rate(rtlsdr_dev_t *dev, uint32_t samp_rate)
 
 	if (dev->tuner && dev->tuner->set_bw) {
 		rtlsdr_set_i2c_repeater(dev, 1);
-		dev->tuner->set_bw(dev, (int)real_rate);
+		dev->tuner->set_bw(dev, (int)(real_rate/2));
 		rtlsdr_set_i2c_repeater(dev, 0);
 	}
 
