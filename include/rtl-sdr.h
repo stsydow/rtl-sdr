@@ -60,6 +60,11 @@ RTLSDR_API int rtlsdr_get_device_usb_strings(uint32_t index,
  */
 RTLSDR_API int rtlsdr_get_index_by_serial(const char *serial);
 
+RTLSDR_API int rtlsdr_get_device_usb_hex(uint32_t index,
+					     uint32_t *manufact,
+					     uint32_t *product,
+					     char *serial, uint32_t serial_len);
+
 RTLSDR_API int rtlsdr_open(rtlsdr_dev_t **dev, uint32_t index);
 
 RTLSDR_API int rtlsdr_close(rtlsdr_dev_t *dev);

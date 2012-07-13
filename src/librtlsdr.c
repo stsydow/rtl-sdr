@@ -1227,6 +1227,67 @@ const char *rtlsdr_get_device_name(uint32_t index)
 		return "";
 }
 
+int rtlsdr_get_device_usb_hex(uint32_t index, uint32_t *manufact,
+				   uint32_t *product, char *serial, uint32_t serial_len)
+{
+	int r = -2;
+	int i;
+	libusb_context *ctx;
+	libusb_device **list;
+	struct libusb_device_descriptor dd;
+	rtlsdr_dongle_t *device = NULL;
+	rtlsdr_dev_t devt;
+	uint32_t device_count = 0;
+	ssize_t cnt;
+
+	libusb_init(&ctx);
+
+	cnt = libusb_get_device_list(ctx, &list);
+
+	for (i = 0; i < cnt; i++) {
+		r = libusb_get_device_descriptor(list[i], &dd);
+		if(r != 0){
+		    libusb_exit(ctx);
+		    return r;
+		}
+
+		device = find_known_device(dd.idVendor, dd.idProduct);
+
+		if (device) {
+			device_count++;
+
+			if (index == device_count - 1) {
+				*manufact = dd.idVendor;
+				*product  = dd.idProduct;
+				if(dd.iSerialNumber){
+				    r = libusb_open(list[i], &devt.devh);
+				    if(r != 0){
+					libusb_exit(ctx);
+					return r;
+				    }
+				    r = libusb_get_string_descriptor_ascii(
+					    devt.devh, dd.iSerialNumber, (unsigned char *)serial, serial_len);
+				    libusb_close(devt.devh);
+				    if(r <= 0){
+					libusb_exit(ctx);
+					return r;
+				    }
+				}else{
+				    serial[0] = 0;
+				}
+				break;
+			}
+		}
+	}
+
+	libusb_free_device_list(list, 1);
+
+	libusb_exit(ctx);
+
+	return r;
+
+}
+
 int rtlsdr_get_device_usb_strings(uint32_t index, char *manufact,
 				   char *product, char *serial)
 {
