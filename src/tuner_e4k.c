@@ -358,6 +358,7 @@ static const struct pll_settings pll_vars[] = {
 	{KHZ(432000),	(0 << 3) | 3,	8},
 	{KHZ(667000),	(0 << 3) | 2,	6},
 	{KHZ(1200000),	(0 << 3) | 1,	4}
+	/*{ END ,	(0 << 3) | 0,	2}*/
 };
 
 static int is_fvco_valid(uint32_t fvco_z)
@@ -608,7 +609,7 @@ static const int8_t if_stage4_gain[] = {
 };
 
 static const int8_t if_stage56_gain[] = {
-	3, 6, 9, 12, 15, 15, 15, 15 /* TODO check this - 3dB offset to the linux driver*/
+	3, 6, 9, 12, 15, 15, 15, 15 
 };
 
 static const int8_t *if_stage_gain[] = {
