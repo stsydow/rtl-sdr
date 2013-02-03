@@ -331,12 +331,14 @@ int rtlsdr_read_array(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr, uint8_t *
 	return r;
 }
 
-int rtlsdr_write_array(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr, uint8_t *array, uint8_t len)
+int rtlsdr_write_array(rtlsdr_dev_t *dev, uint8_t block, uint16_t addr, const uint8_t *array, uint8_t len)
 {
 	int r;
 	uint16_t index = (block << 8) | 0x10;
+	uint8_t data[len];
+	memcpy(data, array, len);
 
-	r = libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index, array, len, CTRL_TIMEOUT);
+	r = libusb_control_transfer(dev->devh, CTRL_OUT, 0, addr, index, data, len, CTRL_TIMEOUT);
 #if 0
 	if (r < 0)
 		fprintf(stderr, "%s failed with %d\n", __FUNCTION__, r);
@@ -377,7 +379,7 @@ uint8_t e4k_reg_read(struct e4k_state *e4k, uint8_t reg)
 	return rtlsdr_i2c_read_reg((rtlsdr_dev_t*)e4k->rtl_dev, e4k->i2c_addr, reg);
 }
 
-int rtlsdr_i2c_write(rtlsdr_dev_t *dev, uint8_t i2c_addr, uint8_t *buffer, int len)
+int rtlsdr_i2c_write(rtlsdr_dev_t *dev, uint8_t i2c_addr, const uint8_t *buffer, int len)
 {
 	uint16_t addr = i2c_addr;
 
@@ -1791,7 +1793,7 @@ uint32_t rtlsdr_get_tuner_clock(void *dev)
 	return tuner_freq;
 }
 
-int rtlsdr_i2c_write_fn(void *dev, uint8_t addr, uint8_t *buf, int len)
+int rtlsdr_i2c_write_fn(void *dev, uint8_t addr, const uint8_t *buf, int len)
 {
 	if (dev)
 		return rtlsdr_i2c_write(((rtlsdr_dev_t *)dev), addr, buf, len);
