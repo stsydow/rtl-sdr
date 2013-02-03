@@ -353,13 +353,14 @@ int rtlsdr_i2c_write_reg(rtlsdr_dev_t *dev, uint8_t i2c_addr, uint8_t reg, uint8
 	return rtlsdr_write_array(dev, IICB, addr, (uint8_t *)&data, 2);
 }
 
-uint8_t rtlsdr_i2c_read_reg(rtlsdr_dev_t *dev, uint8_t i2c_addr, uint8_t reg)
+int rtlsdr_i2c_read_reg(rtlsdr_dev_t *dev, uint8_t i2c_addr, uint8_t reg)
 {
 	uint16_t addr = i2c_addr;
 	uint8_t data = 0;
 
-	rtlsdr_write_array(dev, IICB, addr, &reg, 1);
-	rtlsdr_read_array(dev, IICB, addr, &data, 1);
+	int r = rtlsdr_write_array(dev, IICB, addr, &reg, 1);
+	if(r < 0) return r;
+	r = rtlsdr_read_array(dev, IICB, addr, &data, 1);
 
 	return data;
 }
@@ -1654,7 +1655,7 @@ int rtlsdr_read_async(rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t cb, void *ctx,
 	}
 
 	while (RTLSDR_INACTIVE != dev->async_status) {
-		r = libusb_handle_events_timeout(dev->ctx, &tv);
+		r = libusb_handle_events_timeout_completed(dev->ctx, &tv, NULL);
 		if (r < 0) {
 			/*fprintf(stderr, "handle_events returned: %d\n", r);*/
 			if (r == LIBUSB_ERROR_INTERRUPTED) /* stray signal */
