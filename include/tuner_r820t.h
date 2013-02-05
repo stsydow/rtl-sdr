@@ -4,12 +4,15 @@
 #define R820T_I2C_ADDR		0x34
 #define R820T_CHECK_ADDR	0x00
 #define R820T_CHECK_VAL		0x69
+#define CHIP_VARIANT R820T
 
 #define R820T_IF_FREQ		3570000
 
-//***************************************************************
-//*                       INCLUDES.H
-//***************************************************************
+#ifndef true
+#define true	1
+#define false	0
+#endif
+
 #define VERSION   "R820T_v1.49_ASTRO"
 #define VER_NUM  49
 
@@ -18,9 +21,6 @@
 
 #define USE_DIPLEXER		false
 #define TUNER_CLK_OUT		true
-
-#define true	1
-#define false	0
 
 typedef enum _Rafael_Chip_Type  //Don't modify chip list
 {
@@ -36,7 +36,6 @@ typedef enum _Rafael_Chip_Type  //Don't modify chip list
 //                   R828 Parameter                        //
 //----------------------------------------------------------//
 
-extern uint8_t R828_ADDRESS;
 
 #define DIP_FREQ  	  320000
 #define IMR_TRIAL    9
@@ -46,7 +45,6 @@ extern uint32_t R828_IF_khz;
 extern uint32_t R828_CAL_LO_khz;
 extern uint8_t  R828_IMR_point_num;
 extern uint8_t  R828_IMR_done_flag;
-extern uint8_t  Rafael_Chip;
 
 typedef enum _R828_Standard_Type  //Don't remove standand list!!
 {
@@ -135,7 +133,7 @@ int R828_Init(void *pTuner);
 int R828_Standby(void *pTuner, char loop_through);
 int R828_GPIO(void *pTuner, char value);
 int R828_SetStandard(void *pTuner, R828_Standard_Type RT_Standard);
-int R828_SetFrequency(void *pTuner, R828_Set_Info R828_INFO, char fast_mode);
+int R828_SetFrequency(void *pTuner, uint64_t freq, R828_Standard_Type R828_Standard, char fast_mode);
 int R828_GetRfGain(void *pTuner, R828_RF_Gain_Info *pR828_rf_gain);
 int R828_SetRfGain(void *pTuner, int gain);
 int R828_RfGainMode(void *pTuner, int manual);
@@ -143,7 +141,7 @@ int R828_RfGainMode(void *pTuner, int manual);
 int
 r820t_SetRfFreqHz(
 	void *pTuner,
-	unsigned long RfFreqHz
+	uint64_t RfFreqHz
 	);
 
 int
