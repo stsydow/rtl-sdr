@@ -36,7 +36,6 @@ typedef enum _Rafael_Chip_Type  //Don't modify chip list
 //                   R828 Parameter                        //
 //----------------------------------------------------------//
 
-
 #define DIP_FREQ  	  320000
 #define IMR_TRIAL    9
 #define VCO_pwr_ref   0x02
@@ -96,7 +95,6 @@ typedef struct _R828_Set_Info
     uint32_t        RF_Hz;
     uint32_t        RF_KHz;
     R828_Standard_Type R828_Standard;
-    char loop_through;
     R828_InputMode_Type   RT_InputMode;
     R828_IfAgc_Type R828_IfAgc_Select; 
 }R828_Set_Info;
@@ -130,10 +128,7 @@ typedef struct _R828_I2C_TYPE
 //                   R828 Function                         //
 //----------------------------------------------------------//
 int R828_Init(void *pTuner);
-int R828_Standby(void *pTuner, char loop_through);
-int R828_GPIO(void *pTuner, char value);
-int R828_SetStandard(void *pTuner, R828_Standard_Type RT_Standard);
-int R828_SetFrequency(void *pTuner, uint64_t freq, R828_Standard_Type R828_Standard, char fast_mode);
+//int R828_GPIO(void *pTuner, char value);
 int R828_GetRfGain(void *pTuner, R828_RF_Gain_Info *pR828_rf_gain);
 int R828_SetRfGain(void *pTuner, int gain);
 int R828_RfGainMode(void *pTuner, int manual);
