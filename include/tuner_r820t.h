@@ -4,7 +4,9 @@
 #define R820T_I2C_ADDR		0x34
 #define R820T_CHECK_ADDR	0x00
 #define R820T_CHECK_VAL		0x69
+
 #define CHIP_VARIANT R820T
+#define VER_NUM  49
 
 #define R820T_IF_FREQ		3570000
 
@@ -13,14 +15,9 @@
 #define false	0
 #endif
 
-#define VERSION   "R820T_v1.49_ASTRO"
-#define VER_NUM  49
-
-#define USE_16M_XTAL		false
 #define R828_Xtal		28800
 
 #define USE_DIPLEXER		false
-#define TUNER_CLK_OUT		true
 
 typedef enum _Rafael_Chip_Type  //Don't modify chip list
 {
@@ -39,11 +36,6 @@ typedef enum _Rafael_Chip_Type  //Don't modify chip list
 #define DIP_FREQ  	  320000
 #define IMR_TRIAL    9
 #define VCO_pwr_ref   0x02
-
-extern uint32_t R828_IF_khz;
-extern uint32_t R828_CAL_LO_khz;
-extern uint8_t  R828_IMR_point_num;
-extern uint8_t  R828_IMR_done_flag;
 
 typedef enum _R828_Standard_Type  //Don't remove standand list!!
 {

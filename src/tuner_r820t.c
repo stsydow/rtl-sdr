@@ -23,6 +23,7 @@ static const uint8_t init_state[32] = {
     0x32, 
     0x75, 
 
+/*0x08*/
     0xC0, 
     0x40, 
     0xD6, 
@@ -30,12 +31,9 @@ static const uint8_t init_state[32] = {
     0xF5, 
     0x63,
     0x75,
-#if(TUNER_CLK_OUT)
-    0x68,
-#else
-    0x78,
-#endif
+    0x68, // !(1 << 8) XTAL_out 
     
+/*0x10*/
     0x6C, 
     0x83, 
     0x80, 
@@ -45,6 +43,7 @@ static const uint8_t init_state[32] = {
     0xC0,
     0x30, 
     
+/*0x18*/
     0x48, 
     0xCC, 
     0x60, 
@@ -140,7 +139,8 @@ int r820t_SetStandby(void *pTuner, char loop_through)
 	0x09, 0x00, 0xC0, //polyfilter off
 	0x0A, 0x00, 0x36,
 	0x0C, 0x00, 0x35,
-	0x0F, 0x00, 0x68, // was 0x78, which turns off CLK_Out
+	// don't turn it off - the rtl2832 uses it
+	// 0x0F, !(1<<8), (1<<8), // XTAL clk off
 	0x11, 0x00, 0x03,
 	0x17, 0x00, 0xF4,
 	0x19, 0x00, 0x0C,
@@ -157,8 +157,6 @@ int r820t_SetStandby(void *pTuner, char loop_through)
 
 int I2C_Write_Len(void *pTuner, R828_I2C_LEN_TYPE *I2C_Info)
 {
-    uint8_t DeviceAddr;
-
     unsigned int i, j;
 
     uint8_t ByteNum = I2C_Info->Len;
@@ -186,27 +184,17 @@ int I2C_Write_Len(void *pTuner, R828_I2C_LEN_TYPE *I2C_Info)
     return 0;
 }
 
-    int
+int
 I2C_Read_Len(void *pTuner, R828_I2C_LEN_TYPE *I2C_Info)
 {
-    uint8_t DeviceAddr;
-
     unsigned int i;
 
     uint8_t RegStartAddr = 0x00;
     uint8_t ReadingBytes[128];
     unsigned long ByteNum = (unsigned long)I2C_Info->Len;
 
-    // Set tuner register reading address.
-    // Note: The I2C format of tuner register reading address setting is as follows:
-    //       start_bit + (DeviceAddr | writing_bit) + RegReadingAddr + stop_bit
-
     if (rtlsdr_i2c_write_fn(pTuner, R820T_I2C_ADDR, &RegStartAddr, 1) < 0)
 	return -1;
-
-    // Get tuner register bytes.
-    // Note: The I2C format of tuner register byte getting is as follows:
-    //       start_bit + (DeviceAddr | reading_bit) + reading_bytes (ReadingByteNum bytes) + stop_bit
 
     if (rtlsdr_i2c_read_fn(pTuner, R820T_I2C_ADDR, ReadingBytes, ByteNum) < 0)
 	return -1;
@@ -250,16 +238,6 @@ void R828_Delay_MS(
 //
 //-----------------------------------------------------
 
-
-//#include "stdafx.h"
-//#include "R828.h"
-//#include "..\I2C_Sys.h"
-
-
-
-//----------------------------------------------------------//
-//                   Internal Structs                       //
-//----------------------------------------------------------//
 typedef struct _R828_SectType
 {
     uint8_t Phase_Y;
@@ -334,18 +312,15 @@ uint8_t  R828_Fil_Cal_flag[STD_SIZE];
 static uint8_t R828_Fil_Cal_code[STD_SIZE];
 
 static uint8_t Xtal_cap_sel = XTAL_LOW_CAP_0P;
-static uint8_t Xtal_cap_sel_tmp = XTAL_LOW_CAP_0P;
 //----------------------------------------------------------//
 //                   Internal static struct                 //
 //----------------------------------------------------------//
 static Sys_Info_Type Sys_Info1;
-//static Freq_Info_Type R828_Freq_Info;
 static Freq_Info_Type Freq_Info1;
 //----------------------------------------------------------//
 //                   Internal Functions                     //
 //----------------------------------------------------------//
 static int R828_Xtal_Check(void *pTuner);
-static int R828_IMR_Prepare(void *pTuner);
 static int R828_IMR(void *pTuner, uint8_t IMR_MEM, int IM_Flag);
 static int R828_PLL(void *pTuner, uint64_t LO_freq, R828_Standard_Type R828_Standard);
 static int R828_MUX(void *pTuner, uint64_t RF_freq);
@@ -568,134 +543,41 @@ static int R828_Xtal_Check(void *pTuner)
     if(ret < 0)
 	return ret;
 
-    R828_Delay_MS(pTuner, 5);
-
-    R828_I2C_Len.RegAddr = 0x00;
-    R828_I2C_Len.Len     = 3;
-    if(I2C_Read_Len(pTuner, &R828_I2C_Len) != 0)
-	return -1;
-
-    // if 30pF unlock, set to cap 20pF
-    if(
-	    ((R828_I2C_Len.Data[2] & 0x40) == 0x00) ||
-#if (USE_16M_XTAL==true)
-	    //VCO=2360MHz for 16M Xtal. VCO band 26
-	    ((R828_I2C_Len.Data[2] & 0x3F) > 29) || ((R828_I2C_Len.Data[2] & 0x3F) < 23)
-#else
-	    ((R828_I2C_Len.Data[2] & 0x3F) == 0x3F)
-#endif
-      ){
-	//cap 20pF 
-	ret = i2c_write_reg(pTuner, 0x10, (register_state[0x10] & 0xFC) | 0x02);
-	if(ret < 0)
-	    return ret;
-
-	R828_Delay_MS(pTuner, 5);
-
-	R828_I2C_Len.RegAddr = 0x00;
-	R828_I2C_Len.Len     = 3;
-	if(I2C_Read_Len(pTuner, &R828_I2C_Len) != 0)
-	    return -1;
-
-	// if 20pF unlock, set to cap 10pF
-	if(
-		((R828_I2C_Len.Data[2] & 0x40) == 0x00) ||
-#if (USE_16M_XTAL==true)
-		((R828_I2C_Len.Data[2] & 0x3F) > 29) || ((R828_I2C_Len.Data[2] & 0x3F) < 23)
-#else
-		((R828_I2C_Len.Data[2] & 0x3F) == 0x3F)
-#endif
-	  ){
-	    //cap 10pF 
-	    ret = i2c_write_reg(pTuner, 0x10, (register_state[0x10] & 0xFC) | 0x01);
-	    if(ret < 0)
-		return ret;
-
+    {
+	int i;
+	const uint8_t seq[] = {
+	 // addr, mask, value
+	    0x10, 0xFC, 0x02, // cap 20pF
+	    0x10, 0xFC, 0x01, // cap 10pF
+	    0x10, 0xFC, 0x00, // cap 0pF
+	    0x10, 0xF7, 0x00, // X'tal drive high
+	};
+	for(i = 0; i < 4; i++){
 	    R828_Delay_MS(pTuner, 5);
 
 	    R828_I2C_Len.RegAddr = 0x00;
 	    R828_I2C_Len.Len     = 3;
 	    if(I2C_Read_Len(pTuner, &R828_I2C_Len) != 0)
 		return -1;
-
-	    // if 10pF unlock, set to cap 0pF
-	    if(
-		    ((R828_I2C_Len.Data[2] & 0x40) == 0x00) ||
-#if (USE_16M_XTAL==true)
-		    ((R828_I2C_Len.Data[2] & 0x3F) > 29) || ((R828_I2C_Len.Data[2] & 0x3F) < 23)
+	    if(((R828_I2C_Len.Data[2] & 0x40) != 0x00) &&
+#if (R828_Xtal <= 16000)
+		    //VCO=2360MHz for 16M Xtal. VCO band 26
+		    ((R828_I2C_Len.Data[2] & 0x3F) <= 29) && ((R828_I2C_Len.Data[2] & 0x3F) >= 23)
 #else
-		    ((R828_I2C_Len.Data[2] & 0x3F) == 0x3F)
+		    ((R828_I2C_Len.Data[2] & 0x3F) != 0x3F)
 #endif
-	      ){
-		//cap 0pF 
-		ret = i2c_write_reg(pTuner, 0x10, (register_state[0x10] & 0xFC) | 0x00);
-		if(ret < 0)
-		    return ret;
-
-		R828_Delay_MS(pTuner, 5);
-
-		R828_I2C_Len.RegAddr = 0x00;
-		R828_I2C_Len.Len     = 3;
-		if(I2C_Read_Len(pTuner, &R828_I2C_Len) != 0)
-		    return -1;
-
-		// if unlock, set to high drive
-		if(
-			((R828_I2C_Len.Data[2] & 0x40) == 0x00) ||
-#if (USE_16M_XTAL==true)
-			((R828_I2C_Len.Data[2] & 0x3F) > 29) || ((R828_I2C_Len.Data[2] & 0x3F) < 23)
-#else
-			((R828_I2C_Len.Data[2] & 0x3F) == 0x3F)
-#endif
-		  ){
-		    //X'tal drive high
-		    ret = i2c_write_reg(pTuner, 0x10, (register_state[0x10] & 0xF7) | 0x00);
-		    if(ret < 0)
-			return ret;
-
-		    //R828_Delay_MS(15);
-		    R828_Delay_MS(pTuner, 20);
-
-		    R828_I2C_Len.RegAddr = 0x00;
-		    R828_I2C_Len.Len     = 3;
-		    if(I2C_Read_Len(pTuner, &R828_I2C_Len) != 0)
-			return -1;
-
-		    if(
-			    ((R828_I2C_Len.Data[2] & 0x40) == 0x00) ||
-#if (USE_16M_XTAL==true)
-			    ((R828_I2C_Len.Data[2] & 0x3F) > 29) || ((R828_I2C_Len.Data[2] & 0x3F) < 23)
-#else
-			    ((R828_I2C_Len.Data[2] & 0x3F) == 0x3F)
-#endif
-		      ){
-			return -1;
-		    }
-		    else //0p+high drive lock
-		    {
-			Xtal_cap_sel_tmp = XTAL_HIGH_CAP_0P;
-		    }
-		}
-		else //0p lock
-		{
-		    Xtal_cap_sel_tmp = XTAL_LOW_CAP_0P;
-		}
+	      )
+	    {
+		ret = i;
+		break;
 	    }
-	    else //10p lock
-	    {   
-		Xtal_cap_sel_tmp = XTAL_LOW_CAP_10P;
-	    }
+	    ret = i2c_write_reg(pTuner, seq[i*3], (register_state[seq[i*3]] & seq[i*3 +1]) | seq[i*3 +2] );
+	    if(ret < 0)
+		return ret;
 	}
-	else //20p lock
-	{
-	    Xtal_cap_sel_tmp = XTAL_LOW_CAP_20P;
-	}
+	if(i == 4)
+	    ret = i;
     }
-    else // 30p lock
-    {
-	Xtal_cap_sel_tmp = XTAL_LOW_CAP_30P;
-    }
-
     return 0;
 }	
 
@@ -717,25 +599,15 @@ int R828_Init(void *pTuner)
 	}
 	else
 	{
-	    if(R828_Xtal_Check(pTuner) != 0)        //1st
-		return -1;
+	    Xtal_cap_sel = 0;
+	    for(i = 0; i < 3; i++){
+		int check_val = R828_Xtal_Check(pTuner);
+		if(check_val < 0)
+		    return -1;
 
-	    Xtal_cap_sel = Xtal_cap_sel_tmp;
+		if(check_val > Xtal_cap_sel)
+		    Xtal_cap_sel = check_val;
 
-	    if(R828_Xtal_Check(pTuner) != 0)        //2nd
-		return -1;
-
-	    if(Xtal_cap_sel_tmp > Xtal_cap_sel)
-	    {
-		Xtal_cap_sel = Xtal_cap_sel_tmp;
-	    }
-
-	    if(R828_Xtal_Check(pTuner) != 0)        //3rd
-		return -1;
-
-	    if(Xtal_cap_sel_tmp > Xtal_cap_sel)
-	    {
-		Xtal_cap_sel = Xtal_cap_sel_tmp;
 	    }
 
 	}
@@ -755,8 +627,25 @@ int R828_Init(void *pTuner)
 		return ret;
 	}
 
-	if(R828_IMR_Prepare(pTuner) != 0)
-	    return -1;
+	{// R828_IMR_Prepare
+	    const uint8_t seq[] = {
+		// addr, mask, value
+		0x05, 0xFF, 0x20,	//lna off (air-in off)
+		0x07, 0xEF, 0x00, //mixer gain mode = manual	
+		0x0A, 0xFF, 0x0F,	//filter corner = lowest
+		0x0B, 0x90, 0x60, //filter bw=+2cap, hp=5M	
+		0x0C, 0x60, 0x0B,	//adc=on, vga code mode, gain = 26.5dB
+		0x0F, 0xF7, 0x00,	//ring clk = on
+		0x18, 0xFF, 0x10,	//ring power = on
+		0x1C, 0xFF, 0x02,	//from ring = ring pll in
+		0x1E, 0xFF, 0x80,	//sw_pdect = det3
+		0x06, 0xFF, 0x10, // Set filt_3dB	
+	    };
+
+	    ret = i2c_write_reg_seq_mask(pTuner, seq, sizeof(seq)/3);
+	    if(ret < 0)
+		return ret;
+	}
 
 	if(R828_IMR(pTuner, 3, true) != 0)       //Full K node 3
 	    return -1;
@@ -784,32 +673,6 @@ int R828_Init(void *pTuner)
 	    return ret;
     }
 
-    return 0;
-}
-
-static int R828_IMR_Prepare(void *pTuner)
-{
-    int ret;
-    memcpy(register_state, init_state, sizeof(init_state));
-    {
-	const uint8_t seq[] = {
-	    // addr, mask, value
-	    0x05, 0xFF, 0x20,	//lna off (air-in off)
-	    0x07, 0xEF, 0x00, //mixer gain mode = manual	
-	    0x0A, 0xFF, 0x0F,	//filter corner = lowest
-	    0x0B, 0x90, 0x60, //filter bw=+2cap, hp=5M	
-	    0x0C, 0x60, 0x0B,	//adc=on, vga code mode, gain = 26.5dB
-	    0x0F, 0xF7, 0x00,	//ring clk = on
-	    0x18, 0xFF, 0x10,	//ring power = on
-	    0x1C, 0xFF, 0x02,	//from ring = ring pll in
-	    0x1E, 0xFF, 0x80,	//sw_pdect = det3
-	    0x06, 0xFF, 0x10, // Set filt_3dB	
-	};
-
-	ret = i2c_write_reg_seq_mask(pTuner, seq, sizeof(seq)/3);
-	if(ret < 0)
-	    return ret;
-    }
     return 0;
 }
 
@@ -886,7 +749,6 @@ static int R828_IMR(void *pTuner, uint8_t IMR_MEM, int IM_Flag)
 	    break;
     }
 
-
     {
 	int ret;
 	const uint8_t seq[] = {
@@ -937,42 +799,34 @@ static int R828_IMR(void *pTuner, uint8_t IMR_MEM, int IM_Flag)
 
 static int R828_PLL(void *pTuner, uint64_t LO_freq, R828_Standard_Type R828_Standard)
 {
-
-    //	R820T_EXTRA_MODULE *pExtra;
-
-    uint8_t  MixDiv;
+    uint8_t  MixDiv = 2;
     uint8_t  DivBuf;
     uint8_t  Ni;
     uint8_t  Si;
     uint8_t  DivNum;
     uint8_t  Nint;
-    uint32_t VCO_Min_kHz;
-    uint32_t VCO_Max_kHz;
+    const uint32_t VCO_Min_kHz = 1770000;
+    const uint32_t VCO_Max_kHz = VCO_Min_kHz*2;
     uint64_t VCO_Freq;
     uint32_t PLL_Ref;		//Max 24000 (kHz)
     uint32_t VCO_Fra;		//VCO contribution by SDM (kHz)
-    uint16_t Nsdm;
+    uint16_t Nsdm = 2;
     uint16_t SDM;
     uint8_t  pw_sdm;
-    //uint8_t  Judge    = 0;
     uint8_t  VCO_fine_tune;
 
+    int ret;
     R828_I2C_TYPE  R828_I2C;
 
-    MixDiv   = 2;
     DivBuf   = 0;
     Ni       = 0;
     Si       = 0;
     DivNum   = 0;
     Nint     = 0;
-    VCO_Min_kHz  = 1770000;
-    VCO_Max_kHz  = VCO_Min_kHz*2;
     VCO_Freq = 0;
     PLL_Ref	= 0;		//Max 24000 (kHz)
     VCO_Fra	= 0;		//VCO contribution by SDM (kHz)
-    Nsdm		= 2;
     SDM		= 0;
-    //uint8_t  Judge    = 0;
     VCO_fine_tune = 0;
 
 #if 0
@@ -1008,7 +862,6 @@ static int R828_PLL(void *pTuner, uint64_t LO_freq, R828_Standard_Type R828_Stan
 
     PLL_Ref = rtlsdr_get_tuner_clock(pTuner);
     {
-	int ret;
 	const uint8_t seq[] = {
 	    // addr, mask, value
 	    0x10, 0xEF, 0x00,	//FIXME hack
@@ -1049,12 +902,9 @@ static int R828_PLL(void *pTuner, uint64_t LO_freq, R828_Standard_Type R828_Stan
     else if(VCO_fine_tune < VCO_pwr_ref)
 	DivNum = DivNum + 1; 
 
-    R828_I2C.RegAddr = 0x10;
-    register_state[11+5] &= 0x1F;
-    register_state[11+5] |= (DivNum << 5);
-    R828_I2C.Data = register_state[11+5];
-    if(I2C_Write(pTuner, &R828_I2C) != 0)
-	return -1;
+    ret = i2c_write_reg(pTuner, 0x10, (register_state[0x10] & 0x1F) | (DivNum << 5) );
+    if(ret < 0)
+	return ret;
 
     VCO_Freq = LO_freq * (uint64_t)MixDiv;
     Nint     = (uint8_t) (VCO_Freq / 2 / PLL_Ref);
@@ -1144,21 +994,16 @@ static int R828_PLL(void *pTuner, uint64_t LO_freq, R828_Standard_Type R828_Stan
     if( (R828_I2C_Len.Data[2] & 0x40) == 0x00 )
     {
 	fprintf(stderr, "[R820T] PLL not locked for %u kHz!\n", (uint32_t)(LO_freq/1000));
-	R828_I2C.RegAddr = 0x12;
-	register_state[13+5]    = (register_state[13+5] & 0x1F) | 0x60;  //increase VCO current
-	R828_I2C.Data    = register_state[13+5];
-	if(I2C_Write(pTuner, &R828_I2C) != 0)
-	    return -1;
+    	ret = i2c_write_reg(pTuner, 0x12, (register_state[0x12] & 0x1F) | 0x60 ); //increase VCO current
+    	if(ret < 0)
+		return ret;
 
 	return -1;
     }
 
-    //set pll autotune = 8kHz
-    R828_I2C.RegAddr = 0x1A;
-    register_state[21+5]    = register_state[21+5] | 0x08;
-    R828_I2C.Data    = register_state[21+5];
-    if(I2C_Write(pTuner, &R828_I2C) != 0)
-	return -1;
+    ret = i2c_write_reg(pTuner, 0x1A, (register_state[0x1A] & 0xFF) | 0x08 ); //set pll autotune = 8kHz
+    if(ret < 0)
+	return ret;
 
     return 0;
 }
@@ -2185,7 +2030,7 @@ static int R828_SetFrequency(void *pTuner, uint64_t freq, R828_Standard_Type R82
 	DIV_BUF_CUR=0x20; // 10, 200u
     }
 
-#if(USE_DIPLEXER==true)
+#if USE_DIPLEXER
     uint8_t AIR_CABLE1_IN=0x00;
     if ((CHIP_VARIANT==R820C) || (CHIP_VARIANT==R820T) || (CHIP_VARIANT==R828S))
     {
