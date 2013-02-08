@@ -16,7 +16,7 @@
 static const uint8_t init_state[32] = {
     0,
     0,
-    0,
+    0, //0x02 (1<<14) XTAL_status (ok = 1) ;  VCO_band? 0x3F ( (XTAL > 16M) => bad=0x3F, (XTAL == 16M) => ok = [23:29] ) 
     0,
     0,
     0x83, 
@@ -31,13 +31,16 @@ static const uint8_t init_state[32] = {
     0xF5, 
     0x63,
     0x75,
-    0x68, // !(1 << 8) XTAL_out 
+    0x68, //0x0F (1<<8) XTAL_out (on=0, off=1)
     
 /*0x10*/
-    0x6C, 
+    0x6C, //0x10 
+    // (1<<8) XTAL_to_PLL_devider (1=0, 2=1) PLL_freq < 24 MHz
+    // (1<<7) XTAL_drive (low =1, high=0) ; 
+    // (1<<1)|(1<<0) XTAL_cap = value * 10pF
     0x83, 
     0x80, 
-    0x00, 
+    0x00, //0x13 initial=0x7F; (1 <<14) (manual=0, auto=1)
     0x0F, 
     0x00, 
     0xC0,
@@ -46,7 +49,7 @@ static const uint8_t init_state[32] = {
 /*0x18*/
     0x48, 
     0xCC, 
-    0x60, 
+    0x60, //0x1A (1<<2)|(1<<2) PLL_autotune (128kHz = 0)
     0x00, 
     0x54, 
     0xAE, 
@@ -320,7 +323,6 @@ static Freq_Info_Type Freq_Info1;
 //----------------------------------------------------------//
 //                   Internal Functions                     //
 //----------------------------------------------------------//
-static int R828_Xtal_Check(void *pTuner);
 static int R828_IMR(void *pTuner, uint8_t IMR_MEM, int IM_Flag);
 static int R828_PLL(void *pTuner, uint64_t LO_freq, R828_Standard_Type R828_Standard);
 static int R828_MUX(void *pTuner, uint64_t RF_freq);
@@ -519,68 +521,6 @@ static Freq_Info_Type R828_Freq_Sel(uint32_t LO_freq)
     return R828_Freq_Info;
 }
 
-static int R828_Xtal_Check(void *pTuner)
-{
-    int ret;
-    R828_I2C_TYPE  R828_I2C;
-
-    memcpy(register_state, init_state, sizeof(init_state));
-
-    {
-	const uint8_t seq[] = {
-	 // addr, mask, value
-	    0x10, 0xF4, 0x0B,	//cap 30pF & Drive Low (XTAL)
-	    0x1A, 0xF3, 0x00,	//set pll autotune = 128kHz
-	    0x13, 0x80, 0x7F, //set manual initial reg = 111111
-	};
-
-	ret = i2c_write_reg_seq_mask(pTuner, seq, sizeof(seq)/3);
-	if(ret < 0)
-	    return ret;
-    }
-
-    ret = i2c_write_reg(pTuner, 0x13, register_state[0x13] & 0xBF); //set auto
-    if(ret < 0)
-	return ret;
-
-    {
-	int i;
-	const uint8_t seq[] = {
-	 // addr, mask, value
-	    0x10, 0xFC, 0x02, // cap 20pF
-	    0x10, 0xFC, 0x01, // cap 10pF
-	    0x10, 0xFC, 0x00, // cap 0pF
-	    0x10, 0xF7, 0x00, // X'tal drive high
-	};
-	for(i = 0; i < 4; i++){
-	    R828_Delay_MS(pTuner, 5);
-
-	    R828_I2C_Len.RegAddr = 0x00;
-	    R828_I2C_Len.Len     = 3;
-	    if(I2C_Read_Len(pTuner, &R828_I2C_Len) != 0)
-		return -1;
-	    if(((R828_I2C_Len.Data[2] & 0x40) != 0x00) &&
-#if (R828_Xtal <= 16000)
-		    //VCO=2360MHz for 16M Xtal. VCO band 26
-		    ((R828_I2C_Len.Data[2] & 0x3F) <= 29) && ((R828_I2C_Len.Data[2] & 0x3F) >= 23)
-#else
-		    ((R828_I2C_Len.Data[2] & 0x3F) != 0x3F)
-#endif
-	      )
-	    {
-		ret = i;
-		break;
-	    }
-	    ret = i2c_write_reg(pTuner, seq[i*3], (register_state[seq[i*3]] & seq[i*3 +1]) | seq[i*3 +2] );
-	    if(ret < 0)
-		return ret;
-	}
-	if(i == 4)
-	    ret = i;
-    }
-    return 0;
-}	
-
 int R828_Init(void *pTuner)
 {
     uint8_t i;
@@ -588,30 +528,7 @@ int R828_Init(void *pTuner)
 
     if(R828_IMR_done_flag==false)
     {
-
-	//Do Xtal check
-	if(
-		(CHIP_VARIANT==R820T) || 
-		(CHIP_VARIANT==R828S) || 
-		(CHIP_VARIANT==R820C))
-	{
-	    Xtal_cap_sel = XTAL_HIGH_CAP_0P;
-	}
-	else
-	{
-	    Xtal_cap_sel = 0;
-	    for(i = 0; i < 3; i++){
-		int check_val = R828_Xtal_Check(pTuner);
-		if(check_val < 0)
-		    return -1;
-
-		if(check_val > Xtal_cap_sel)
-		    Xtal_cap_sel = check_val;
-
-	    }
-
-	}
-
+	Xtal_cap_sel = XTAL_HIGH_CAP_0P;
 	//reset filter cal.
 	for (i=0; i<STD_SIZE; i++)
 	{	  
@@ -799,72 +716,24 @@ static int R828_IMR(void *pTuner, uint8_t IMR_MEM, int IM_Flag)
 
 static int R828_PLL(void *pTuner, uint64_t LO_freq, R828_Standard_Type R828_Standard)
 {
-    uint8_t  MixDiv = 2;
-    uint8_t  DivBuf;
-    uint8_t  Ni;
-    uint8_t  Si;
-    uint8_t  DivNum;
-    uint8_t  Nint;
-    const uint32_t VCO_Min_kHz = 1770000;
-    const uint32_t VCO_Max_kHz = VCO_Min_kHz*2;
+    int  MixShift;
+    int  PLL_div;
+    const uint64_t VCO_Min = 1770000000;
     uint64_t VCO_Freq;
-    uint32_t PLL_Ref;		//Max 24000 (kHz)
-    uint32_t VCO_Fra;		//VCO contribution by SDM (kHz)
-    uint16_t Nsdm = 2;
+    uint32_t XTAL_freq;
+    uint32_t PLL_Ref;
+    uint32_t VCO_Fra;	//VCO contribution by SDM (kHz)
     uint16_t SDM;
-    uint8_t  pw_sdm;
     uint8_t  VCO_fine_tune;
 
     int ret;
-    R828_I2C_TYPE  R828_I2C;
 
-    DivBuf   = 0;
-    Ni       = 0;
-    Si       = 0;
-    DivNum   = 0;
-    Nint     = 0;
-    VCO_Freq = 0;
-    PLL_Ref	= 0;		//Max 24000 (kHz)
-    VCO_Fra	= 0;		//VCO contribution by SDM (kHz)
-    SDM		= 0;
-    VCO_fine_tune = 0;
 
-#if 0
-    if ((CHIP_VARIANT==R620D) || (CHIP_VARIANT==R828D) || (CHIP_VARIANT==R828))  //X'tal can't not exceed 20MHz for ATV
-    {
-	if(R828_Standard <= SECAM_L1)	  //ref set refdiv2, reffreq = Xtal/2 on ATV application
-	{
-	    register_state[11+5] |= 0x10; //b4=1
-	    PLL_Ref = R828_Xtal /2;
-	}
-	else //DTV, FilCal, IMR
-	{
-	    register_state[11+5] &= 0xEF;
-	    PLL_Ref = R828_Xtal;
-	}
-    }
-    else
-    {
-	if(R828_Xtal > 24000)
-	{
-	    register_state[11+5] |= 0x10; //b4=1
-	    PLL_Ref = R828_Xtal /2;
-	}
-	else
-	{
-	    register_state[11+5] &= 0xEF;
-	    PLL_Ref = R828_Xtal;
-	}
-    }
-#endif
-    //FIXME hack
-    register_state[0x10] &= 0xEF;
-
-    PLL_Ref = rtlsdr_get_tuner_clock(pTuner);
+    XTAL_freq = rtlsdr_get_tuner_clock(pTuner);
     {
 	const uint8_t seq[] = {
 	    // addr, mask, value
-	    0x10, 0xEF, 0x00,	//FIXME hack
+	    0x10, 0xEF, 0x00,	//xtal div = 1
 	    0x1A, 0xF3, 0x00,	//set pll autotune = 128kHz
 	    0x12, 0x1F, 0x80,	//Set VCO current = 100
 	};
@@ -874,54 +743,32 @@ static int R828_PLL(void *pTuner, uint64_t LO_freq, R828_Standard_Type R828_Stan
 	    return ret;
     }
 
-    //Divider
-    while(MixDiv <= 64)
-    {
-	if((((LO_freq/1000) * MixDiv) >= VCO_Min_kHz) && (((LO_freq/1000) * MixDiv) < VCO_Max_kHz))
-	{
-	    DivBuf = MixDiv;
-	    while(DivBuf > 2)
-	    {
-		DivBuf = DivBuf >> 1;
-		DivNum ++;
-	    }
-	    break;
-	}
-	MixDiv = MixDiv << 1;
+    assert(LO_freq > 0);
+
+    MixShift = (sizeof(int)*8 - __builtin_clz((int)(VCO_Min / LO_freq)));
+    if(MixShift > 6) MixShift = 6;
+    if(MixShift < 1) MixShift = 1;
+
+    VCO_Freq = LO_freq << MixShift;
+    
+    PLL_div  = (uint8_t) (VCO_Freq  / (2 * XTAL_freq));
+    VCO_Fra  = (uint16_t) ((VCO_Freq % (2 * XTAL_freq)) / 1000);
+
+    PLL_Ref = XTAL_freq / 1000;
+
+    if (PLL_div > 63) {
+	fprintf(stderr, "[R820T] No valid PLL values for %u kHz!\n", (uint32_t)(LO_freq/1000));
+	return -1;
     }
 
-    R828_I2C_Len.RegAddr = 0x00;
-    R828_I2C_Len.Len     = 5;
-    if(I2C_Read_Len(pTuner, &R828_I2C_Len) != 0)
-	return -1;	
-
-    VCO_fine_tune = (R828_I2C_Len.Data[4] & 0x30)>>4;
-
-    if(VCO_fine_tune > VCO_pwr_ref)
-	DivNum = DivNum - 1;
-    else if(VCO_fine_tune < VCO_pwr_ref)
-	DivNum = DivNum + 1; 
-
-    ret = i2c_write_reg(pTuner, 0x10, (register_state[0x10] & 0x1F) | (DivNum << 5) );
-    if(ret < 0)
-	return ret;
-
-    VCO_Freq = LO_freq * (uint64_t)MixDiv;
-    Nint     = (uint8_t) (VCO_Freq / 2 / PLL_Ref);
-    VCO_Fra  = (uint16_t) ((VCO_Freq - 2 * PLL_Ref * Nint) / 1000);
-
-    //FIXME hack
-    PLL_Ref /= 1000;
-
-    //	printf("VCO_Freq = %lu, Nint= %u, VCO_Fra= %lu, LO_freq= %u, MixDiv= %u\n", VCO_Freq, Nint, VCO_Fra, LO_freq, MixDiv);
-
     //boundary spur prevention
+    /*
     if (VCO_Fra < PLL_Ref/64)           //2*PLL_Ref/128
 	VCO_Fra = 0;
     else if (VCO_Fra > PLL_Ref*127/64)  //2*PLL_Ref*127/128
     {
 	VCO_Fra = 0;
-	Nint ++;
+	PLL_div ++;
     }
     else if((VCO_Fra > PLL_Ref*127/128) && (VCO_Fra < PLL_Ref)) //> 2*PLL_Ref*127/256,  < 2*PLL_Ref*128/256
 	VCO_Fra = PLL_Ref*127/128;      // VCO_Fra = 2*PLL_Ref*127/256
@@ -929,37 +776,40 @@ static int R828_PLL(void *pTuner, uint64_t LO_freq, R828_Standard_Type R828_Stan
 	VCO_Fra = PLL_Ref*129/128;      // VCO_Fra = 2*PLL_Ref*129/256
     else
 	VCO_Fra = VCO_Fra;
+    */
+    
 
-    if (Nint > 63) {
-	fprintf(stderr, "[R820T] No valid PLL values for %u kHz!\n", (uint32_t)(LO_freq/1000));
-	return -1;
-    }
+    SDM = (VCO_Fra << 15) / PLL_Ref;
 
-    //N & S
-    Ni       = (Nint - 13) / 4;
-    Si       = Nint - 4 *Ni - 13;
+    fprintf(stderr, "LO: %u kHz, MixDiv: %u, PLLDiv: %u, VCO %u kHz, SDM: %u \n", (uint32_t)(LO_freq/1000), 1 << MixShift, PLL_div,  (uint32_t)(VCO_Freq/1000), SDM);
 
-    pw_sdm = VCO_Fra ? 0x00 : 0x08;
+    {
+	R828_I2C_Len.RegAddr = 0x00;
+	R828_I2C_Len.Len     = 5;
+	if(I2C_Read_Len(pTuner, &R828_I2C_Len) != 0)
+	    return -1;	
 
-    //SDM calculator
-    while(VCO_Fra > 1)
-    {			
-	if (VCO_Fra > (2*PLL_Ref / Nsdm))
-	{		
-	    SDM = SDM + 32768 / (Nsdm/2);
-	    VCO_Fra = VCO_Fra - 2*PLL_Ref / Nsdm;
-	    if (Nsdm >= 0x8000)
-		break;
-	}
-	Nsdm = Nsdm << 1;
+	VCO_fine_tune = (R828_I2C_Len.Data[4] & 0x30)>>4;
+
+	MixShift--;
+	if(VCO_fine_tune > VCO_pwr_ref)
+	    MixShift --;
+	else if(VCO_fine_tune < VCO_pwr_ref)
+	    MixShift ++;
+
+	assert(MixShift < 8);
     }
 
     {
 	int ret;
+	uint8_t  Ni = (PLL_div - 13) >> 2;
+	uint8_t  Si = (PLL_div - 13) & 0x03;
+
 	const uint8_t seq[] = {
 	    // addr, mask, value
+	    0x10, 0x1F, (MixShift << 5),
 	    0x14, 0x00, (Ni + (Si << 6)), 
-	    0x12, 0xF7, pw_sdm,
+	    0x12, 0xF7, SDM ? 0x00 : 0x08,
 	    0x15, 0x00, (uint8_t) (SDM & 0xff),
 	    0x16, 0x00, (uint8_t) (SDM >> 8),
 	};
@@ -968,22 +818,8 @@ static int R828_PLL(void *pTuner, uint64_t LO_freq, R828_Standard_Type R828_Stan
 	if(ret < 0)
 	    return ret;
     }
-    //	R828_Delay_MS(10);
-
-    if (
-	    (CHIP_VARIANT==R620D) ||
-	    (CHIP_VARIANT==R828D) || 
-	    (CHIP_VARIANT==R828))
-    {
-	if(R828_Standard <= SECAM_L1)
-	    R828_Delay_MS(pTuner, 20);
-	else
-	    R828_Delay_MS(pTuner, 10);
-    }
-    else
-    {
-	R828_Delay_MS(pTuner, 10);
-    }
+    
+    R828_Delay_MS(pTuner, 10);
 
     //check PLL lock status
     R828_I2C_Len.RegAddr = 0x00;
