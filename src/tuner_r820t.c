@@ -15,10 +15,10 @@
 
 static const uint8_t init_state[32] = {
     0,
-    0,
-    0, //0x02 (1<<14) XTAL_status (ok = 1) ;  VCO_band? 0x3F ( (XTAL > 16M) => bad=0x3F, (XTAL == 16M) => ok = [23:29] ) 
-    0,
-    0,
+    0, //0x01 Image Rejection state 
+    0, //0x02 (1<<14) PLL_lock;  VCO_band? 0x3F ( (XTAL > 16M) => bad=0x3F, (XTAL == 16M) => ok = [23:29] ) 
+    0, //0x03 0x0F rf_gain1; 0xF0 rf_gain2
+    0, //0x04 0x30:VCO_fine_tune, 0x0F: filt_code
     0x83, 
     0x32, 
     0x75, 
@@ -446,6 +446,7 @@ int R828_Init(void *pTuner)
 	    const uint8_t seq[] = {
 		// addr, mask, value
 		0x05, 0xFF, 0x20,	//lna off (air-in off)
+		0x06, 0xFF, 0x10, // Set filt_3dB	
 		0x07, 0xEF, 0x00, //mixer gain mode = manual	
 		0x0A, 0xFF, 0x0F,	//filter corner = lowest
 		0x0B, 0x90, 0x60, //filter bw=+2cap, hp=5M	
@@ -454,7 +455,6 @@ int R828_Init(void *pTuner)
 		0x18, 0xFF, 0x10,	//ring power = on
 		0x1C, 0xFF, 0x02,	//from ring = ring pll in
 		0x1E, 0xFF, 0x80,	//sw_pdect = det3
-		0x06, 0xFF, 0x10, // Set filt_3dB	
 	    };
 
 	    ret = i2c_write_reg_seq_mask(pTuner, seq, sizeof(seq)/3);
@@ -789,12 +789,12 @@ static int R828_MUX(void *pTuner, uint64_t freq)
 	int ret;
 	const uint8_t seq[] = {
 	    // addr, mask, value
+	    0x08, 0xC0, RT_Reg08, // IMR
+	    0x09, 0xC0, RT_Reg09,
+	    0x10, 0xF4, xtal_cap, // XTAL CAP & Drive
 	    0x17, 0xF7, Freq_Info1.OPEN_D, // Open Drain
 	    0x1A, 0x3C, Freq_Info1.RF_MUX_PLOY, // RF_MUX,Polymux
 	    0x1B, 0x00, Freq_Info1.TF_C, // TF BAND
-	    0x10, 0xF4, xtal_cap, // XTAL CAP & Drive
-	    0x08, 0xC0, RT_Reg08, // IMR
-	    0x09, 0xC0, RT_Reg09,
 	};
 
 	ret = i2c_write_reg_seq_mask(pTuner, seq, sizeof(seq)/3);
@@ -813,6 +813,7 @@ static int R828_IQ(void *pTuner, R828_SectType* IQ_Pont)
     uint8_t VGA_Count;
     uint16_t VGA_Read;
     uint8_t  X_Direction;  // 1:X, 0:Y
+    int ret;
     R828_I2C_TYPE  R828_I2C;
 
     VGA_Count = 0;
@@ -821,12 +822,11 @@ static int R828_IQ(void *pTuner, R828_SectType* IQ_Pont)
     // increase VGA power to let image significant
     for(VGA_Count = 12;VGA_Count < 16;VGA_Count ++)
     {
-	R828_I2C.RegAddr = 0x0C;
-	R828_I2C.Data    = (register_state[7+5] & 0xF0) + VGA_Count;  
-	if(I2C_Write(pTuner, &R828_I2C) != 0)
-	    return -1;
+	ret = i2c_write_reg(pTuner, 0x0C, (register_state[0x0C] & 0xF0) | VGA_Count );
+	if(ret < 0)
+	    return ret;
 
-	R828_Delay_MS(pTuner, 10); //
+	R828_Delay_MS(pTuner, 10);
 
 	if(R828_Multi_Read(pTuner, 0x01, &VGA_Read) != 0)
 	    return -1;
@@ -835,11 +835,8 @@ static int R828_IQ(void *pTuner, R828_SectType* IQ_Pont)
 	    break;
     }
 
-    //initial 0x08, 0x09
-    //Compare_IQ[0].Gain_X  = 0x40; //should be 0xC0 in R828, Jason
-    //Compare_IQ[0].Phase_Y = 0x40; //should be 0x40 in R828
-    Compare_IQ[0].Gain_X  = init_state[8] & 0xC0; // Jason modified, clear b[5], b[4:0]
-    Compare_IQ[0].Phase_Y = init_state[9] & 0xC0; //
+    Compare_IQ[0].Gain_X  = init_state[0x08] & 0xC0; // Jason modified, clear b[5], b[4:0]
+    Compare_IQ[0].Phase_Y = init_state[0x09] & 0xC0; //
 
     //while(IQ_Count < 3)
     //{
@@ -1165,7 +1162,7 @@ static int R828_Multi_Read(void *pTuner, uint8_t IMR_Reg, uint16_t* IMR_Result_D
 
     for(i = 0;  i < 6; i++)
     {
-	int ret = i2c_read_reg(pTuner, IMR_Reg + 1, &value); //IMR_Reg = 0x01
+	int ret = i2c_read_reg(pTuner, IMR_Reg, &value); //IMR_Reg = 0x01
 	if(ret < 0)
 	    return ret;
 
@@ -1440,7 +1437,7 @@ static int R828_F_IMR(void *pTuner, R828_SectType* IQ_Pont)
 
 static int R828_GPIO(void *pTuner, char value)
 {
-    uint8_t reg_val = register_state[0x0F] & 0xFE | (value>0);
+    uint8_t reg_val = (register_state[0x0F] & 0xFE) | (value>0);
     int ret = i2c_write_reg(pTuner, 0x0F, reg_val);
     if(ret < 0)
 	return ret;
