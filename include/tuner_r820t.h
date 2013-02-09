@@ -19,16 +19,6 @@
 
 #define USE_DIPLEXER		false
 
-typedef enum _Rafael_Chip_Type  //Don't modify chip list
-{
-    R828 = 0,
-    R828D,
-    R828S,
-    R820T,
-    R820C,
-    R620D,
-    R620S
-}Rafael_Chip_Type;
 //----------------------------------------------------------//
 //                   R828 Parameter                        //
 //----------------------------------------------------------//
@@ -103,13 +93,6 @@ typedef enum _R828_RF_Gain_TYPE
     RF_AUTO = 0,
     RF_MANUAL
 }R828_RF_Gain_TYPE;
-
-typedef struct _R828_I2C_LEN_TYPE
-{
-    uint8_t RegAddr;
-    uint8_t Data[50];
-    uint8_t Len;
-}R828_I2C_LEN_TYPE;
 
 typedef struct _R828_I2C_TYPE
 {
