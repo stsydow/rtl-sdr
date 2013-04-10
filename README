@@ -4,3 +4,8 @@ turns your Realtek RTL2832 based DVB dongle into a SDR receiver
 
 For more information see:
 http://sdr.osmocom.org/trac/wiki/rtl-sdr
+
+This version has a rewritten driver for the R820T tuner.
+It should lock between 24MHz and 1900MHz.
+
+Stefan Sydow [ http://metafly.info ]
